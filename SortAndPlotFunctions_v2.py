@@ -107,7 +107,7 @@ class Plots:
             ax1 = sns.boxplot(x=self.x1Group, y=self.yGroup, notch = False,
                             #hue_order=clarity_ranking,
                             data=self.df)
-            ax1.legend(bbox_to_anchor=(1.05, 1), loc=2, borderaxespad=0.)
+            # ax1.legend(bbox_to_anchor=(1.05, 1), loc=2, borderaxespad=0.)
             ax1.set_xticklabels(ax1.get_xticklabels(), rotation=30, ha="right")
             self.strSave = "boxPlot" + self.yGroup + self.title1Group + ".png"
             titleSave = self.yGroup + " as a function of " + self.x1Group
@@ -155,7 +155,6 @@ class Plots:
             #### need to move the legends
             if self.x2DotGroup:
                 if self.x2DotGroup != self.x2Group: #### this adds more information to the plot, as you can now label 3 groups (or have 3 independent variables) in the plot
-                
                     ax1 = sns.swarmplot(x=self.x1Group, y=self.yGroup,hue = self.x2DotGroup,palette="bright", data=self.df,
                     size=6, color=".5", linewidth=2,dodge=True)
                     ax1.legend(bbox_to_anchor=(1.05, 1), loc=2, borderaxespad=0.)
@@ -171,9 +170,9 @@ class Plots:
             # ax1.set(ylim=(self.YaxRangeMin,self.YaxRangeMax))
             plt.ylim(self.YaxRangeMin, self.YaxRangeMax)
             # print('resizing axis')
-        # self.fig.tight_layout(pad=0.5)
+        plt.tight_layout()
         plt.savefig(self.folderSave + self.strSave)
-        plt.close()
+        # plt.close()
         plotImage = PIL.Image.open(self.folderSave+self.strSave)
         return plotImage
     def stripPlot(self):
@@ -196,11 +195,9 @@ class Plots:
             ########3
             titleSave = self.yGroup + " as a function of " + self.x1Group  ### saving the plot
             ax1.set_title(titleSave)
-            # self.figure.tight_layout()
-            
         ##### if there are two X groups then the "hue" is added to the striplot. the "palette" variable controls the color scheme for X2Group
         elif self.x1Group and self.x2Group:
-            plt.figure()
+            figure = plt.figure()
             ax1 = sns.stripplot(x=self.x1Group, y=self.yGroup,
                             hue=self.x2Group,
                             palette="bright",
@@ -215,13 +212,19 @@ class Plots:
             sns.set(rc={'figure.figsize':(self.sizeX,self.sizeY)}) ######
             plt.subplots_adjust(bottom=0.2)
             plt.subplots_adjust(right=0.8)
-            # plt.tight_layout()
             # ########3
             titleSave = self.yGroup + " as a function of " + self.x1Group + " and " + self.x2Group
             ax1.set_title(titleSave)
         # self.figure.tight_layout(pad = 0.5)
-        plt.savefig(self.folderSave + self.strSave)
-        plt.close()
+        if self.YaxRangeMin != 0 or self.YaxRangeMax != 0:
+        #### converting the axis scalling to float
+            # print(self.YaxRangeMin, self.YaxRangeMax)
+            # ax1.set(ylim=(self.YaxRangeMin,self.YaxRangeMax))
+            plt.ylim(self.YaxRangeMin, self.YaxRangeMax)
+            # print('resizing axis')
+        plt.tight_layout()
+        plt.savefig(self.folderSave + self.strSave)  # change to seaborn
+        # plt.close()
         plotImage = PIL.Image.open(self.folderSave+self.strSave)
         return plotImage
     
@@ -234,16 +237,21 @@ class Plots:
             sns.pairplot(self.df, vars = ['PCE', 'Voc', 'Jsc','FF'], hue = self.x1Group)
             self.strSave = 'pairPlot' + self.titleGroup + '.png'
             plt.savefig(self.folderSave+self.strSave)
-            plt.close()
-            
+           # plt.close()
         elif not self.x1Group:
             plt.figure()
             sns.pairplot(self.df, vars = ['PCE', 'Voc', 'Jsc','FF'])
             self.strSave = 'pairPlot_allDevices.png'
             plt.savefig(self.folderSave + self.strSave)
-            plt.close()
+          #  plt.close()
             plt.plot_kws={"s": 0.1}#### adjusting the size of data points
-        
+        if self.YaxRangeMin != 0 or self.YaxRangeMax != 0:
+        #### converting the axis scalling to float
+            # print(self.YaxRangeMin, self.YaxRangeMax)
+            # ax1.set(ylim=(self.YaxRangeMin,self.YaxRangeMax))
+            plt.ylim(self.YaxRangeMin, self.YaxRangeMax)
+            # print('resizing axis')
+        plt.tight_layout()
         plotImage = PIL.Image.open(self.folderSave+self.strSave)
         return plotImage
     

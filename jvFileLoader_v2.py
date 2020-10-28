@@ -14,8 +14,9 @@ from scipy.stats import linregress
 from csv import writer
 import mmap
 import re
-import SortAndPlotFunctions_12Aug20 as spf
+import SortAndPlotFunctions_v2 as spf
 
+pd.set_option("display.max_rows", None, "display.max_columns", None)
 
 class LoadData:
     # df = pd.DataFrame()
@@ -28,8 +29,9 @@ class LoadData:
         self.df = pd.DataFrame()
         self.dfP = pd.DataFrame()
         self.dfnumpy = pd.DataFrame()
+        self.allDataJVdf = pd.DataFrame()
     def loadDataFromFileManager(self, fileNames, solarSim="SERFC215 racetrack sim", module=False):
-        # LoadData.df = LoadData.df[0:0]
+        # LoadData.df = LoadData.df.iloc[0:0]
         self.fileNames = fileNames
         self.solarSim = solarSim
         self.module = module
@@ -41,6 +43,9 @@ class LoadData:
         for f in fileNames:
             newDevice = PvDevice(f, self.solarSim, self.module, self.racetrack)
             newDevice.deviceDataFromLoad_set(f,self.solarSim)
+            fileJVData = newDevice.filesJVData_get()
+            #print("getting file's JV data from PvDevice")
+            #print(fileJVData)
             newDevice.deviceDataFromCalc_set()
             # dfTemp = newDevice.dataFrameDict_get()
             badFormat = newDevice.badFormat_get()
@@ -53,6 +58,9 @@ class LoadData:
             else:
                 self.badFormatLoadList = ''
             self.noisyCurveLoadList.append(noisyCurve)
+            self.allDataJVdf = self.allDataJVdf.append(fileJVData, sort=False)
+            #print("all data JV df in loadData")
+            #print(self.allDataJVdf)
             # self.df = pd.concat([self.df,dfTemp])
             # LoadData.df = pd.concat([LoadData.df, dfTemp])
             # LoadData.badFormatLoadList.append(badFormatTemp)
@@ -66,11 +74,11 @@ class LoadData:
         # return loadData.df, loadData.badFormatList, loadData.noisyCurveList
         # PvDevice.findHystGroups_set(self)
         self.df = PvDevice.devicesDF_get(self)
+        PvDevice.devicesDF_destroy(self)
         hysteresis = spf.ScanDirections(self.df.copy())
-        print(hysteresis.dfNorm)
+      #  print(hysteresis.dfNorm)
         hysteresis.calcHysteresis()
         self.df = hysteresis.dfHyst.copy()
-        print(self.df)
     def loadParametersFromFileManager(self, fileName, addDevice = False):
         try:
             if addDevice == False:
@@ -245,26 +253,31 @@ class PvDevice:
         #Rsh = Rsh/cellA
         self.rsh = Rsh
     def deviceDataFromCalc_set(self):
-        # print(self.__dataDF)
+        #print("self.__dataDF before getting jvType")
+        #print(self.__dataDF)
         self.jvType = self.__dataDF['LightDark'][0]
         if self.jvType == 'lt':
-            PvDevice.calcVoc(self)
-            PvDevice.calcJsc(self)
-            PvDevice.calcVmppJmpp(self)
-            PvDevice.calcFF(self)
-            PvDevice.calcPCE(self)
-            PvDevice.calcRs(self)
-            PvDevice.calcRsh(self)
-            self.__dataDF['Voc'] = self.voc
-            self.__dataDF['Jsc'] = self.jsc
-            self.__dataDF['FF'] = self.ff
-            self.__dataDF['PCE'] = self.pce
-            self.__dataDF['Vmpp'] = self.vmpp
-            self.__dataDF['Jmpp'] = self.jmpp
-            self.__dataDF['Rs'] = self.rs
-            self.__dataDF['Rsh'] = self.rsh
-            PvDevice.__devicesDF = pd.concat([PvDevice.__devicesDF, self.__dataDF])
-            # print(PvDevice.__devicesDF)
+            try:
+                PvDevice.calcVoc(self)
+                PvDevice.calcJsc(self)
+                PvDevice.calcVmppJmpp(self)
+                PvDevice.calcFF(self)
+                PvDevice.calcPCE(self)
+                PvDevice.calcRs(self)
+                PvDevice.calcRsh(self)
+                self.__dataDF['Voc'] = self.voc
+                self.__dataDF['Jsc'] = self.jsc
+                self.__dataDF['FF'] = self.ff
+                self.__dataDF['PCE'] = self.pce
+                self.__dataDF['Vmpp'] = self.vmpp
+                self.__dataDF['Jmpp'] = self.jmpp
+                self.__dataDF['Rs'] = self.rs
+                self.__dataDF['Rsh'] = self.rsh
+                PvDevice.__devicesDF = pd.concat([PvDevice.__devicesDF, self.__dataDF])
+            except:
+                print(self.filename)
+                print('JV data file {self.filename} badly formatted or contains shit data. Could not calculate peformance of device.')
+                self.__noisyCurveTemp.append(self.filename)
             # return self.__dataDF.copy()
         elif self.jvType == 'dk':
             print('Dark Curve Operations Here')
@@ -282,6 +295,14 @@ class PvDevice:
                 loader.SERFC215rt(self.filename)
                 dataNPtemp = loader.dataNP
                 dfLoadTemp = loader.dataDF
+                #print("loader.__dataJVdf in PvDevice")
+                fromLoader = loader.getJVdf()
+                #print("accessing JV data from simLoader in PvDevice")
+                #print(fromLoader)
+                self.__dataJVdf = fromLoader
+                #print("making JV data an instance var in PvDevice")
+                #print("self.__dataJVdf after data loaded in")
+                #print(self.__dataJVdf)
                 # dictLoadTemp = loader.dataDict
             elif self.solarSim == "PDIL substrate sim" & self.module == False:
                 loader.STF213sub(self.filename)
@@ -317,13 +338,16 @@ class PvDevice:
         # return dataNPtemp, dfLoadTemp, badFormatTemp
     def devicesDF_get(self):
         dfReturn = PvDevice.__devicesDF.copy()
+        #dfReturn.at[0, "PCE"] = 1000.0
         return dfReturn
     def badFormat_get(self):
         return self.__badFormatTemp
     def noisyCurve_get(self):
         return self.__noisyCurveTemp
+    def filesJVData_get(self):
+        return self.__dataJVdf
     def devicesDF_destroy(self):
-        PvDevice.__devicesDF = pd.DataFrame()
+        PvDevice.__devicesDF = pd.DataFrame(columns=PvDevice.__devicesDF.columns)
   
 def parametersLoader(filename, data):
     paramsDf = pd.read_csv(filename, sep=',')
@@ -339,11 +363,14 @@ class SimLoader:
         self.dataNP = []
         self.dataDict = {}
         self.dataDF = pd.DataFrame()
+        self.__dataJVdf = pd.DataFrame()
         
     def SERFC215rt(self,filename):
         self.filename = filename
         self.dataNP = loadtxt(self.filename, delimiter='\t', skiprows=21, usecols=[0,1],
                        dtype=float) ### putting IV data into array
+        self.__dataJVdf = pd.read_csv(self.filename, sep = "\t", skiprows=21, usecols = [0,1], names=["Voltage", "Current"], dtype = float)
+        #puts IV data into a dataframe
     
         try:
             split0 = self.filename.split('/') ### splitting off path from filename
@@ -364,8 +391,13 @@ class SimLoader:
               'Loop': loopNum, 'Scan': scanNum, 'Scan Direction': scanDir,
               'LightDark': jvType}
             self.dataDF = self.dataDF.append(self.dataDict, ignore_index=True)
+            #print("loader dataDF")
+            #print(self.dataDF)
+            self.__dataJVdf['File'] = file
+            #print("current and voltage dataframe from simLoader")
+            #print(self.__dataJVdf)
         except:
-            print("File naming convention incompatible for" + self.filename +
+            print("File naming convention incompatible for " + self.filename +
                   ". Format should be " +
                   "<user>_<sampleName>_<rev/fwd>_<lt/dk>_lp<#>_<pixel>_<scan number>")
         # return self.dataNP, self.dataDict
@@ -375,6 +407,8 @@ class SimLoader:
         self.filename = filename
         self.dataNP = loadtxt(self.filename, skiprows=2, nrows=120, delimiter='\t',
                                usecols=[0,1], dtype=float) ###putting IV data into array
+        self.__dataJVdf = pd.read_csv(self.filename, sep = "\t", skiprows=2, usecols = [0,1], names=["Voltage", "Current"], dtype = float)
+        #puts IV data into a dataframe
         try:
             split0 = self.filename.split('/') ### splitting off path from filename
             file = split0[-1]
@@ -393,6 +427,7 @@ class SimLoader:
               'User Initials': user, 'Sample': sampleName,
               'Scan Direction': scanDir, 'LightDark': jvType}
             self.dataDF = self.dataDF.append(self.dataDict, ignore_index=True)
+            self.__dataJVdf['File'] = file
         
         except:
             print("File naming convention incompatible for" + self.filename +
@@ -418,6 +453,8 @@ class SimLoader:
                     fout.write(chunk.group(1))    
         self.dataNP = pd.loadtxt(self.filename+'1.csv', skiprows=18, usecols = [0,1],
                               delimiter='\t', dtype=np.float64)
+        self.__dataJVdf = pd.read_csv(self.filename+'1.csv', sep = "\t", skiprows=18, usecols = [0,1], names=["Voltage", "Current"], dtype = float)
+        #puts IV data into a dataframe
         try:
             split0 = self.filename.split('/') ### splitting off path from filename
             file = split0[-1]
@@ -432,6 +469,7 @@ class SimLoader:
               'User Initials': user, 'Sample': sampleName,
               'Scan Direction': scanDir, 'LightDark': 'lt'}
             self.dataDF = self.dataDF.append(self.dataDict, ignore_index=True)
+            self.__dataJVdf['File'] = file
             
         except:
             print("File naming convention incompatible for" + self.filename +
@@ -443,6 +481,8 @@ class SimLoader:
     def STF204in(self,filename):
         self.filename = filename
         self.dataNP = loadtxt(filename, skiprows=18, delimiter='\t', dtype=np.float64)
+        self.__dataJVdf = pd.read_csv(self.filename, sep = "\t", skiprows=18, usecols = [0,1], names=["Voltage", "Current"], dtype = float)
+        #puts IV data into a dataframe
         try:
             split0 = self.filename.split('/') ### splitting off path from filename
             file = split0[-1]
@@ -463,9 +503,13 @@ class SimLoader:
               'Loop': loopNum, 'Scan': scanNum, 'Scan Direction': scanDir,
               'LightDark': jvType}
             self.dataDF = self.dataDF.append(self.dataDict, ignore_index=True)
+            self.__dataJVdf['File'] = file
         except:
             print("File naming convention for " + self.filename
                   + " incompatible. Should be "
                   + "<user>_<sampleName>_<rev/fwd>_<lt/dk>_lp<#>_"
                   + "<pixel>_<scan number>")
         # return self.dataNP, self.dataDict
+
+    def getJVdf(self):
+        return self.__dataJVdf

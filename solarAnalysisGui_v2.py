@@ -44,19 +44,24 @@ Structure of GUI:
     
 @author: rbramant
 """
-
 import tkinter as tk
 from tkinter import filedialog
 import tkinter.ttk as ttk
 import pandas as pd
 import numpy as np
-from jvFileLoader_12Aug20 import LoadData as ld
+from jvFileLoader_v2 import LoadData as ld
+from scipy.signal import argrelextrema
 import matplotlib as plt
-import seaborn as sns
-from matplotlib.backends.backend_tkagg import (
-    FigureCanvasTkAgg, NavigationToolbar2Tk)
-import SortAndPlotFunctions_12Aug20 as spf
+plt.use("TkAgg")
+from matplotlib.figure import Figure
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
+import SortAndPlotFunctions_v2 as spf
 from PIL import ImageTk,Image 
+from datetime import date
+
+# class Table:
+#     # general class for generating tables using the entry widget.
+
 
 
 class PlotMethods:
@@ -76,6 +81,7 @@ class DataMethods:
     __dfParameters = pd.DataFrame() #loaded from parameters CSV. keep around to restore if needed
     __dfHyst = pd.DataFrame() #not fully implemented yet in a way I like - a dataframe that includes hysteresis data from JV curves (difference in performance based on scan direction)
     __numpyDf = pd.DataFrame()
+    allJVData = pd.DataFrame()
     badFileList = ''
     # noisyCurveList = []
     def __init__(self, master):
@@ -95,7 +101,11 @@ class DataMethods:
         self.dfTemp = loader.df
         self.badFileTemp = loader.badFormatLoadList
         self.noisyCurveTemp = loader.noisyCurveLoadList
+        DataMethods.allJVData = loader.allDataJVdf             # for identifying outliers
         DataMethods.badFileSetter(self,self.badFileTemp)
+        #creates dict that will have more data added and be converted to a dataframe
+        # self.dictForRemoveOutliers = {'filenames': self.filenameList}
+        # make a dataframe with the file names, voc, fsc, and fill factor so it can be evaluated later when deciding to remove outliers
         # DataMethods.noisyCurveList = self.noisyCurveTemp
         DataMethods.__dfLoaded = pd.concat([DataMethods.__dfLoaded, self.dfTemp])
     def loadDataCSV(self, addDevices = False):
@@ -121,7 +131,7 @@ class DataMethods:
             except: 
                 errorMessage = ('Checked for Voc key, was not present.',
                                 f'CSV {self.filename} does not contain '+
-                                'JV data or are not formatted correctly')
+                                'JV data or is not formatted correctly')
                 LoadDataModule.loadLogFill(self,errorMessage)
                         
         elif self.addDevices == False:
@@ -140,11 +150,11 @@ class DataMethods:
                 df1 = DataMethods.__dfLoaded.copy()
                 df2 = DataMethods.__dfParameters.copy()
                 mergeOn = list(df2['match'].columns.values)
+                df2['match'] = df2['match'].applymap(str) #avoid value errors when matching
                 # addParameters = list(df2['add'].columns.values)
                 df2 = df2.droplevel(0,axis=1)
             #remove a level of df2 and remove duplicate columns from df2
                 cols_not_to_use = [i for i in list(df2.columns.values) if i in list(df1.columns.values) and i not in mergeOn]
-                print(cols_not_to_use)
                 df2 = df2.drop(columns = cols_not_to_use)
                 dfTemp = pd.merge(df1, df2, on=mergeOn, how='left')
                                     # validate = 'm:1')
@@ -154,9 +164,13 @@ class DataMethods:
             dfTemp = DataMethods.__dfLoaded.copy()
         DataMethods.__dfAdjusted = dfTemp
         DataMethods.__dfAdjusted.reset_index(inplace=True)
+        #print("__dfAdjusted after merging dataframes")
+        #print(DataMethods.__dfAdjusted)
     def cleanJscFunct(self, jscLim=4):
-        #this is supposed to delete device data if those devices got less than a threshold Jsc
-        #threshold Jsc is either 4 (default) or set by user
+        """
+        this is supposed to delete device data if those devices got less than a threshold Jsc
+        threshold Jsc is either 4 (default) or set by user
+        """
         try:
             jscLimit = float(jscLim)
         except:
@@ -169,28 +183,87 @@ class DataMethods:
         tempLength = str(len(indexJscLim))
         insertText=f'removed {tempLength} IV curves because Jsc was below {jscLim}'
         CleanDataModule.cleanLogFill(self,insertText) #tell user how many rows were removed from dataset
-    def cleanOutliers(self,param, rmGrp, zScore):
-        #FIX THIS to remove ridiculously high outliers. This was written by previous coder, RCB has not implemented it
-        # this removed the lower outliers based on Z score. (lower is important since removing the best performing cells isn't useful UNLESS IT IS - FIX THIS!)
-        df = DataMethods.dataFrameAdjusted_get(self)
-        zScoreFl = float(zScore)  
-        if rmGrp:
-            #### groups the data by rmGrp then removes outliers. This can be used to remove the worst data points from each cell, or other group, independant of the data in the other groups
-            df = df[df.groupby(rmGrp)[param].\
-              transform(lambda x: (x.mean() - x) / x.std() < zScoreFl).eq(1)]
-            dfRm = df[df.groupby(rmGrp)[param].\
-              transform(lambda x: (x.mean() - x) / x.std() > zScoreFl).eq(1)]
-        if not rmGrp:
-            ##if no group is specified all the data is lumped togther, and lowest points across all treatments, fwd or rev, cells, etc are removed
-            df = df[df[param].\
-                    transform(lambda x: (x.mean() - x) / x.std() < zScoreFl).eq(1)]
-            dfRm = df[df[param].\
-                    transform(lambda x: (x.mean() - x) / x.std() > zScoreFl).eq(1)]
-        tempLength = len(dfRm.index) 
-        tempLength = str(tempLength)
-        DataMethods.__dfAdjusted = df
-        insertText=f'removed {tempLength} IV curves based on Zscore of{zScore}'
-        CleanDataModule.cleanLogFill(insertText)
+    def removeOutliers(self):
+        """
+        loops through DataMethods.__dfAdjusted to make sure the FF and Voc values aren't impossible
+        then, sees if the data in allJVData has >1 local maxima. It would if the curve isn't continuous. Deletes
+        curves that aren't continuous.
+        Then, statistically deletes outliers from __dfAdjusted
+        """
+        # DataMethods.__dfAdjusted.loc[0, "FF"] = 120
+        originalLen = len(DataMethods.__dfAdjusted)
+        for row in DataMethods.__dfAdjusted.itertuples():
+            Voc = DataMethods.__dfAdjusted.at[row.Index, 'Voc']
+            FF = DataMethods.__dfAdjusted.at[row.Index, 'FF']
+            if Voc < 0:
+                negVocMessage = "Deleted file named " + DataMethods.__dfAdjusted.at[row.Index, "File"] + " because the Voc is negative"
+                CleanDataModule.cleanLogFill(self, negVocMessage)
+                DataMethods.__dfAdjusted.drop(row.Index, inplace=True)
+            elif FF < 25 or FF > 100:
+                oddFFMessage = "Deleted file named " + DataMethods.__dfAdjusted.at[row.Index, "File"] + " because the FF is either too low or too high"
+                CleanDataModule.cleanLogFill(self, oddFFMessage)
+                DataMethods.__dfAdjusted.drop(row.Index, inplace=True)
+        startRow = 0
+        endRow = DataMethods.findEndRow(self)
+        startColumn = 1 #the Current column
+        endColumn = 2 #the File column
+        increment = endRow-startRow
+        for i in range(len(DataMethods.__dfAdjusted)):
+            subset = DataMethods.allJVData.iloc[startRow:endRow+1, startColumn:endColumn+1]
+            maximums = argrelextrema(subset['Current'].values, np.greater, order= 10)  # the order is the number of points being compared to determine
+            if (len(maximums[0]) > 1):                                                 # if something is a max. There are 150 points to be compared total. This can be changed
+                indices = list(range(startRow, endRow+1))
+                print(indices)
+                JVOutlierMessage = "Deleted file named " + subset.at[startRow, 'File'] + " because its JV curve isn't continuous"
+                CleanDataModule.cleanLogFill(self, JVOutlierMessage)
+                DataMethods.__dfAdjusted.drop(indices, inplace=True)
+            startRow += increment+1
+            endRow += increment+1
+        JscList = DataMethods.__dfAdjusted.loc[:, "Jsc"]
+        JscList = JscList.values.tolist()
+        DataMethods.detectOutliers(self, JscList, "Jsc")
+        VocList = DataMethods.__dfAdjusted.loc[:, "Voc"]
+        VocList = VocList.values.tolist()
+        DataMethods.detectOutliers(self, VocList, "Voc")
+        FFList = DataMethods.__dfAdjusted.loc[:, "FF"]
+        FFList = FFList.values.tolist()
+        DataMethods.detectOutliers(self, FFList, "FF")
+        PCEList = DataMethods.__dfAdjusted.loc[:, "PCE"]
+        PCEList = PCEList.values.tolist()
+        DataMethods.detectOutliers(self, PCEList, "PCE")
+        if len(DataMethods.__dfAdjusted) == originalLen:
+            printToActivityLog = "No files contain outliers or faulty JV Scans"
+            CleanDataModule.cleanLogFill(self, printToActivityLog)
+        CleanDataModule.cleanDataTree(self)
+        CleanDataModule.populateDataTree(self)
+    def findEndRow(self):
+        '''
+        Finds the last row of voltage data in the allJVData dataframe for one file. Returns the int.
+        '''
+        startFileName = DataMethods.allJVData.at[0, 'File'][0]
+        curFileName = ""
+        indexNum = 0
+        for index, row in DataMethods.allJVData.iterrows():
+            curFileName = row['File']
+            if curFileName != startFileName:
+                return indexNum-1
+            indexNum += 1
+    def detectOutliers(self, dataPointList, value):
+        """
+        uses a Z score to identify files with a Jsc, FF, PCE, or Voc outside of the acceptable range for the dataset.
+        dataPointList has a list of values and value is a string that's the name of the measurement (ex: "Jsc" or "Voc")
+        Deletes files with values that have a Z score greater than the threshold (that can be changed).
+        """
+        threshold = 2                    # how many standard deviations away from the mean acceptable data points are
+        dataMean = np.mean(dataPointList)
+        dataStdDev = np.std(dataPointList)
+        for i in range(len(dataPointList)):
+            dataPoint = dataPointList[i]
+            dataPointZScore = (dataPoint-dataMean) / dataStdDev
+            if np.abs(dataPointZScore) > threshold:
+                valueOutlierMessage = "Deleted file named " + DataMethods.__dfAdjusted.at[i, 'File'] + " because it's " + value + " value is an outlier"
+                CleanDataModule.cleanLogFill(self, valueOutlierMessage)
+                DataMethods.__dfAdjusted.drop(i, inplace=True)
     def badFileSetter(self, badFileTempList):
         self.badFileTemp = badFileTempList
         if not self.badFileTemp:
@@ -207,7 +280,7 @@ class DataMethods:
         self.dataFrameCSVs = DataMethods.__dfParameters.copy()
         return self.dataFrameCSVs
     def dataFrameDevices_destroy(self):
-        DataMethods.__dfLoader = pd.DataFrame()
+        DataMethods.__dfLoaded = pd.DataFrame(columns=DataMethods.__dfLoaded.columns)
     def dataFrameParameters_destroy(self):
         DataMethods.__dfParameters = pd.DataFrame()
     def dataFrameAdjusted_destroy(self):
@@ -221,7 +294,6 @@ class DataMethods:
             dfAdjustRemove = dfAdjustRemove[dfAdjustRemove[arg[0]]==arg[1]]
         indexNames = dfAdjustRemove.index
         DataMethods.__dfAdjusted.drop(indexNames, inplace=True)
-        print("Data deleted")
     def dataFrameAdjusted_columns(self):
         columnsList = DataMethods.__dfAdjusted.columns.values.tolist()
         return columnsList
@@ -232,12 +304,12 @@ class LoadDataModule:
     def __init__(self,master):
         self.master = master
         loadDataFileFrame = ttk.Frame(master)
-        loadDataFileFrame.pack(pady=20)
+        loadDataFileFrame.pack(side=tk.TOP, pady=20)
         loadParFileFrame = ttk.Frame(master)
         loadParFileFrame.pack()
         
         logFrame = tk.Frame(master)
-        logFrame.pack()
+        logFrame.pack(fill = 'x', expand = 1)
         dataLogFrame = tk.Frame(logFrame)
         dataLogFrame.pack(side=tk.LEFT)
         loadLogFrame = ttk.LabelFrame(logFrame, text='Files Failed to Load:')
@@ -283,16 +355,16 @@ class LoadDataModule:
         self.loadCSV_button.grid(row=0,column=2, rowspan=2, columnspan=2)
 
         logScrollY = tk.Scrollbar(logFrame)
-        logScrollY.pack(side=tk.RIGHT, fill=tk.Y)
+       # logScrollY.pack(side=tk.RIGHT, fill=tk.Y)
         
-        logScrollX = tk.Scrollbar(logFrame, orient=tk.HORIZONTAL)
+        logScrollX = tk.Scrollbar(loadLogFrame, orient=tk.HORIZONTAL)
         logScrollX.pack(side=tk.BOTTOM, fill=tk.X)
 
-        self.loadLog = tk.Text(loadLogFrame, width=100, height=6,
+        self.loadLog = tk.Text(loadLogFrame, width=50, height=6,
                            yscrollcommand=logScrollY, xscrollcommand = logScrollX,
                            wrap = tk.NONE)
         self.loadLog.configure(state='disabled')
-        self.loadLog.pack(fill=tk.Y)
+        self.loadLog.pack(fill=tk.BOTH, expand=1)
         
         deviceLogFrame = ttk.LabelFrame(dataLogFrame, text='Devices Loaded:')
         deviceLogFrame.pack(side=tk.LEFT)
@@ -409,15 +481,41 @@ class CleanDataModule:
         self.master = master
         masterFrame = ttk.Frame(master)
         masterFrame.pack()
+
+        #whole canvas
+      #  wholeCanvas = tk.Canvas(masterFrame)
+       # totalxScrollbar = tk.Scrollbar(masterFrame, orient=tk.HORIZONTAL, command=wholeCanvas.xview)
+     #   totalxScrollbar.pack(side=tk.BOTTOM, fill=tk.X)
+     #   totalyScrollbar = tk.Scrollbar(masterFrame, orient=tk.VERTICAL, command=wholeCanvas.yview)
+     #   totalyScrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+     #   wholeCanvas.config(yscrollcommand=totalyScrollbar.set, xscrollcommand=totalxScrollbar.set)
+
         manipDataFileFrame = ttk.Frame(masterFrame)
+       # manipDataFileFrame = ttk.Frame(wholeCanvas)
         manipDataFileFrame.grid(column=0,row=0)
         cleanDataFrame = ttk.Frame(masterFrame)
+       # cleanDataFrame = ttk.Frame(wholeCanvas)
         cleanDataFrame.grid(column=0,row=1)
         logFrame = ttk.Labelframe(masterFrame, text="Activity Log")
-        logFrame.grid(column=0,row=10)
+     #   logFrame = ttk.Labelframe(wholeCanvas, text="Activity Log")
+        logFrame.grid(column=0,row=2)
         viewDataFrame = ttk.Labelframe(masterFrame, text = "Select Devices to Delete")
-        viewDataFrame.grid(column=1,row=10)
-        
+    #    viewDataFrame = ttk.Labelframe(wholeCanvas, text="Select Devices to Delete")
+        viewDataFrame.grid(column=1,row=2)
+        viewJVScanFrame = ttk.Labelframe(masterFrame, text="JV Scans")
+    # #   viewJVScanFrame = ttk.Labelframe(wholeCanvas, text="JV Scans")
+        viewJVScanFrame.grid(column=0, columnspan=2, row=3)
+
+     #   wholeCanvas.create_window((0,0), window=manipDataFileFrame, anchor="nw")
+      #  wholeCanvas.create_window((0,1), window=cleanDataFrame, anchor="nw")
+       # wholeCanvas.create_window((0,2), window=cleanDataFrame, anchor="nw")
+    #    wholeCanvas.create_window((1,2), window=viewDataFrame, anchor="nw")
+     #   wholeCanvas.create_window((0,3), window=viewJVScanFrame)
+
+        #totalScrollbar = tk.Scrollbar(masterFrame, orient='vertical', command=masterFrame.yview)
+        #masterFrame.config(yscrollcommand=totalScrollbar.set)
+        #totalScrollbar.pack(side="right", fill="y")
+
         #entries:
         jscLim = tk.StringVar()
         jscLowerLimLabel1 = tk.Label(cleanDataFrame, text=f'Jsc Lower Limit:')
@@ -458,15 +556,25 @@ class CleanDataModule:
                                   + f'(mA/cm\N{SUPERSCRIPT TWO})')
 
         #buttons:
+        self.selectionError = tk.Label(viewDataFrame, text= "")
+        self.previewJVplotButton = tk.Button(viewDataFrame, text="Preview Selected Device's JV curve", command= lambda : self.previewJVplot())
+        self.previewJVplotButton.pack()
         self.deleteDevicesButton = tk.Button(viewDataFrame, text = 'Delete Selected Devices',
                                              command = lambda: CleanDataModule.destroyTreeItems(self))
         self.deleteDevicesButton.pack()
 
+        self.CleanDataTabLabel = tk.Label(manipDataFileFrame, text= "Click Merge Parameters to upload the devices, even if there's no parameters CSV.")
+        self.CleanDataTabLabel.grid(column=0, row=0)
         self.mergeFrameButton = tk.Button(manipDataFileFrame, text='Merge Parameters with JV Data',
                                           command= lambda:[DataMethods.dataFrameMerger(self),
+                                                           CleanDataModule.tableOfValues(self),
                                                            CleanDataModule.cleanLogFill(self,('DataFrames Merged')),
                                                            CleanDataModule.populateDataTree(self)])
-        self.mergeFrameButton.grid(column=0,row=0)
+        self.mergeFrameButton.grid(column=0,row=1)
+
+        self.cleanOutliersButton = tk.Button(manipDataFileFrame, text = "Clean Outliers",
+                                             command = lambda: DataMethods.removeOutliers(self))
+        self.cleanOutliersButton.grid(column=0, row=2)
         
         self.startOver = ttk.Button(manipDataFileFrame, text='Start Over',
                                     command = lambda: [DataMethods.dataFrameAdjusted_destroy(self),
@@ -474,18 +582,79 @@ class CleanDataModule:
                                                        CleanDataModule.cleanDataTree(self),
                                                        CleanDataModule.populateDataTree(self),
                                                        CleanDataModule.cleanLogFill(self,'Data restored to original')])
-        self.startOver.grid(column=0,row=1)
+        self.startOver.grid(column=0,row=3)
         
         self.cleanJscButton = ttk.Button(cleanDataFrame, text='Remove Jsc Below Limit^',
                                          command = lambda: [DataMethods.cleanJscFunct(self,jscLowerLimEntry.get()),
                                                             CleanDataModule.cleanDataTree(self),
                                                             CleanDataModule.populateDataTree(self)])
         self.cleanJscButton.grid(column=0,row=3, columnspan=3)
+
+        # jv scan preview:
+        self.jvPlot= Figure(figsize=(6,4))
+        self.ax = self.jvPlot.add_subplot()
+        xScrollbar = tk.Scrollbar(viewJVScanFrame, orient=tk.HORIZONTAL)
+        xScrollbar.pack(side=tk.BOTTOM, fill=tk.X)
+        self.jvFigureCanvas = FigureCanvasTkAgg(self.jvPlot, viewJVScanFrame)
+        xScrollbar.config(command=self.jvFigureCanvas.get_tk_widget().xview)
+        self.jvFigureCanvas.get_tk_widget().config(xscrollcommand=xScrollbar.set, scrollregion=(0,0,500,500))
+        toolbar = NavigationToolbar2Tk(self.jvFigureCanvas, viewJVScanFrame)
+        toolbar.update()
+        self.legendLabel = []
      
+    def tableOfValues(self):
+        tempDf = DataMethods.dataFrameAdjusted_get(self)
+        tempDf.to_csv(f'data/{date.today()}_allJVdata.csv', index=False, chunksize=20)
+        CleanDataModule.cleanLogFill(self, f'CSV of JV data printed for {date.today()}')
+    
     def previewJVplot(self):
-        #write here
-        print('JV plot preview')
-        
+        """
+        Makes a JV plot of the selected scan. Prints an error if there's more than one scan selected.
+        Identifies the selected file and its JV data from the tree. Calls makeJVPreviewPlot to make the plot in viewDataFrame
+        """
+        self.selectionError.pack_forget()       # deletes the error if it was previously displayed
+        self.selectedItems = self.viewDataTree.selection()
+        if len(self.selectedItems) != 1:
+            self.selectionError.configure(text= "Please select one item")
+            self.selectionError.pack()
+            return
+        columnvalues = self.viewDataTree['columns']  # get file info from selected item
+        self.attributeList = []
+        deviceValues = self.viewDataTree.item(self.selectedItems, 'values')
+        for k, value in enumerate(deviceValues,start=0):
+            self.attributeList.append((columnvalues[k], value))
+        self.allJVData = DataMethods.allJVData   # get JV data from attribute list
+        filenames = self.allJVData.groupby(by="File")
+        for filename in filenames:
+            if self.isSelectedFile(deviceValues, filename[0]):
+                filesJVData = filename[1]
+                break
+        self.makeJVPreviewPlot(filesJVData)
+
+    def makeJVPreviewPlot(self, filesJVData):
+        """
+        Makes a JV plot from the dataframe that has the Voltage, Current, and filename (filesJVData).
+        """
+        voltage = filesJVData["Voltage"]
+        current = filesJVData["Current"]
+        self.ax.plot(voltage, current)
+        jvFilename = filesJVData["File"].iloc[0][:-4]
+        self.legendLabel.append(jvFilename)
+        self.ax.legend((self.legendLabel), loc="upper left", bbox_to_anchor=(1.05, 1.), borderaxespad=0., fontsize= "xx-small")
+        self.ax.set_title("JV curve")
+        self.ax.set_xlabel("Voltage")
+        self.ax.set_ylabel("Current")
+        self.jvPlot.tight_layout()
+        self.jvFigureCanvas.draw()
+        self.jvFigureCanvas.get_tk_widget().pack()
+
+    def isSelectedFile(self, deviceValues, filename):
+        """
+        Checks if the filename passed in contains all the device values. Looks at the first 5 values in deviceValues. The
+        rest of the values are numerical data.
+        """
+        return (deviceValues[0] in filename) and (deviceValues[1] in filename) and (deviceValues[2] in filename)  and (deviceValues[3] in filename) and (deviceValues[4] in filename)
+
     def populateDataTree(self):
         self.__treeData = DataMethods.dataFrameAdjusted_get(self)
         sampleGroup = self.__treeData.groupby(by=['User Initials','Sample'], as_index=False)
@@ -509,18 +678,18 @@ class CleanDataModule:
                                                       row['Scan Direction'],
                                                       row['PCE'], row['Jsc']))
     def cleanDataTree(self):
+        self.jvFigureCanvas.get_tk_widget().pack_forget()  # removes prexisting JV plot
         self.viewDataTree.delete(*self.viewDataTree.get_children())
         
     def destroyTreeItems(self):
+        self.jvFigureCanvas.get_tk_widget().pack_forget()  # removes prexisting JV plot
+        self.ax.cla()
         self.selectedItems = self.viewDataTree.selection()
-        print(self.selectedItems)
         self.attributeList = []
         columnvalues = self.viewDataTree['columns']
         counter = 0
-        # print(columnvalues)
         for i in self.selectedItems:
             children = self.viewDataTree.get_children(i)
-            print(children)
             if len(children) > 0:
                 for j in children:
                     self.attributeList = []
@@ -551,8 +720,6 @@ class CleanDataModule:
         self.cleanLoadLog.configure(state='normal')
         self.cleanLoadLog.insert('end+2l', f'{insertText}\n')
         self.cleanLoadLog.configure(state='disabled')
-        
-        
 
 class PlotDataModule:
     # A window where you can:
@@ -678,7 +845,7 @@ class PlotDataModule:
         self.yVarPairList.configure(state=tk.DISABLED)
         
         #Buttons and Radio Buttons:
-        self.updateButton = tk.Button(self.editPlotSetupFrame, text='Reset X', width=10,
+        self.updateButton = tk.Button(self.editPlotSetupFrame, text='Update X', width=10,
                                       command=lambda: [self.updateVariables()])
         self.updateButton.grid(column=5, row=0, padx=0)
         self.boxPlotButton = tk.Button(self.plotPreviewSetupFrame, text='Box Plot Preview',
@@ -690,6 +857,12 @@ class PlotDataModule:
         self.pairPlotButton = tk.Button(self.pairPlotSetupFrame, text= 'Generate Pair Plot',
                                         command = lambda: self.previewPlot(self.plotPreviewFrame,'pair'))
         self.pairPlotButton.grid(column=0,row=10, padx=10)
+        self.genTableButton = tk.Button(self.plotPreviewSetupFrame, text='Generate Table of Values',
+                                        command = lambda: [self.previewTable(self.plotPreviewFrame)])
+        self.genTableButton.grid(column=2,row=0,padx=10)
+        
+        self.genTableFrame = tk.Frame(self.plotPreviewSetupFrame)
+        self.genTableFrame.grid(column=0,row=1,columnspan=3)
         
         for i, text in enumerate(SCANDIRSET, start=0):
             self.radioScanDir = tk.Radiobutton(self.editPlotSetupFrame, text=text,
@@ -701,7 +874,7 @@ class PlotDataModule:
         xScrollPreview.pack(side=tk.BOTTOM, expand=True, fill=tk.X)
         yScrollPreview = tk.Scrollbar(self.plotPreviewFrame, orient=tk.VERTICAL)
         yScrollPreview.pack(side=tk.RIGHT, expand=True, fill=tk.Y)
-        self.preview = tk.Canvas(self.plotPreviewFrame, 
+        self.preview = tk.Canvas(self.plotPreviewFrame,
                                  width = 900, height=400,
                                  scrollregion=(0,0,1000,1500),
                                  xscrollcommand = xScrollPreview.set,
@@ -711,7 +884,7 @@ class PlotDataModule:
         self.preview.pack(expand=True, side = tk.LEFT, fill=tk.BOTH)
         self.preview.configure(state = 'disabled')
         
-    def previewPlot(self, master, plotType):  
+    def previewPlot(self, master, plotType):
         self.plotType = plotType
         self.master = master
         yGroup = self.yVar.get()
@@ -727,27 +900,66 @@ class PlotDataModule:
             print('Entries for y axis range and figure size must be numeric')
         self.df = DataMethods.dataFrameAdjusted_get(self)
         if self.scanDirection.get() == 'fwd':
-            self.df = self.df.loc[self.df['Scan Direction']=='fwd']
+            self.df = self.df.loc[self.df['Scan Direction'] == 'fwd']
         elif self.scanDirection.get() == 'rev':
-            self.df = self.df.loc[self.df['Scan Direction']=='rev']
+            self.df = self.df.loc[self.df['Scan Direction'] == 'rev']
         newPlot = spf.Plots(self.master, x1Group=x1Group, x2Group=x2Group,
-                         x2DotGroup=x2DotGroup, sizeX=sizeX, sizeY=sizeY,
-                         yAxRangeMin=yAxRangeMin, yAxRangeMax=yAxRangeMax, fntSz=fntSize,
-                         df=self.df, yGroup=yGroup)
-        if plotType=='box':
-            plotImage=newPlot.barPlot()
+                            x2DotGroup=x2DotGroup, sizeX=sizeX, sizeY=sizeY,
+                            yAxRangeMin=yAxRangeMin, yAxRangeMax=yAxRangeMax, fntSz=fntSize,
+                            df=self.df, yGroup=yGroup)
+        if plotType == 'box':
+            plotImage = newPlot.barPlot()
         elif plotType == 'strip':
             plotImage = newPlot.stripPlot()
         elif plotType == 'pair':
             plotImage = newPlot.pairPlot()
             print('Pair Plot Generated')
         photo = ImageTk.PhotoImage(plotImage, master=self.master)
-        self.preview.configure(state = 'normal')
+        self.preview.configure(state='normal')
         self.preview.delete('all')
-        self.preview.create_image(0,0,anchor = tk.NW, image=photo)
+        self.preview.create_image(0, 0, anchor=tk.NW, image=photo)
         self.preview.image = photo
-        self.preview.configure(state = 'disabled')
+        self.preview.configure(state='disabled')
         print('plot updated')
+    def previewTable(self, master):
+        self.master = master
+        yGroup = self.yVar.get()
+        x1Group, x2Group = self.xVar1.get(), self.xVar2.get()
+        title1Group = ''
+        title2Group = ''
+        titleyGroup = ''
+        for string in x1Group.split(' '):
+            title1Group += string
+        for string in x2Group.split(' '):
+            title2Group += string
+        for string in yGroup.split(' '):
+            titleyGroup += string
+        self.df = DataMethods.dataFrameAdjusted_get(self)
+        if x1Group and x2Group:
+            self.statsDf = self.df.groupby([x1Group,x2Group])[yGroup].describe()
+            print(self.statsDf)
+            self.statsDf.to_csv(f'data/{titleyGroup}stats_{title1Group}_{title2Group}.csv')
+            
+        elif x1Group and not x2Group:
+            self.statsDf = self.df.groupby(x1Group)[yGroup].describe()
+            print(self.statsDf)
+            self.statsDf.to_csv(f'data/{titleyGroup}stats_{title1Group}.csv')
+        # self.jvDataTable = ttk.Treeview(self.genTableFrame, height = 5,
+        #                                  selectmode='extended', show = 'tree headings')
+        # self.jvDataTable["columns"]=(self.statsDf.columns)
+        # self.jvDataTable['displaycolumns'] = '#all'
+        # self.jvDataTable.pack()
+        # self.jvDataTable.column("#0", width=100, minwidth=50, stretch=tk.YES)
+        # print(self.statsDf.columns.values)
+        # for heading in self.statsDf.columns.values:
+        #      self.jvDataTable.column(heading, width=100, minwidth=50, stretch=tk.YES)
+        # #     self.jvDataTable.heading(f'#{i}', text= heading)
+        # # self.viewDataTree.heading("Scan", text = 'Scan #')
+        # # self.viewDataTree.heading('Scan Direction', text = 'fwd/rev')
+        # # self.viewDataTree.heading('PCE', text="PCE (%)")
+        # # self.viewDataTree.heading('Jsc', text=f'Jsc'
+        # #                           + f'(mA/cm\N{SUPERSCRIPT TWO})')
+        
         
     def updateVariables(self):
         self.df = DataMethods.dataFrameAdjusted_get(self)
@@ -781,30 +993,65 @@ class PlotDataModule:
             menuDot.add_command(label=string,
                               command=tk._setit(self.xVarDot, string))
 
+class YScrolledFrame(tk.Frame):
+    """
+    Creates a frame that has a vertical scrollbar on the side. Used in the Notebook class modification.
+    """
+    def __init__(self, parent, *args, **kwargs):
+        super().__init__(parent, *args, **kwargs)
+        self.grid_rowconfigure(0, weight=1)
+        self.grid_columnconfigure(0, weight=1)
+
+        self.canvas = canvas = tk.Canvas(self, width=1000, height=800, relief='raised')
+        canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+
+        scroll = tk.Scrollbar(self, command=canvas.yview, orient=tk.VERTICAL)
+        canvas.config(yscrollcommand=scroll.set)
+        scroll.pack(side="right", fill="y")
+
+        self.content = tk.Frame(canvas)
+        self.canvas.create_window(0, 0, window=self.content, anchor="nw")
+        self.content.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
+
+class Notebook(ttk.Notebook):
+    """
+    Adds to the tkinter Notebook widget by using scrollable frames for each tab
+    """
+    def __init__(self, parent, tab_labels):
+        super().__init__(parent)
+
+        self._tab = {}
+        for text in tab_labels:
+            self._tab[text] = YScrolledFrame(self)
+            # layout by .add defaults to fill=tk.BOTH, expand=True
+            self.add(self._tab[text], text=text, compound=tk.TOP)
+
+    def tab(self, key):
+        return self._tab[key].content
 
 class NotebookWindow:
      def __init__(self, master):
         self.master = master
-         
-        mainNb = ttk.Notebook(master, padding = 10, width = 1000)
+        mainNb = Notebook(self.master, ["Load Data", "Clean Data", "Plot Data"])
         mainNb.pack()
         
-        f1 = ttk.Frame(self.master)
-        mainNb.add(f1, text="Load Data")
-        LoadDataModule(f1) 
+      #  f1 = ttk.Frame(self.master)
+       # mainNb.add(f1, text="Load Data")
+        LoadDataModule(mainNb.tab("Load Data"))
         
         # f2 = ttk.Frame(self.master)
         # mainNb.add(f2, text = "Load Parameters")
         # ParametersModule(f2)
+
+      # # f3 = ttk.Frame(self.master)
+       # mainNb.add(f3, text="Clean Data")
+        CleanDataModule(mainNb.tab("Clean Data"))
+       # mainNb.add(f3, text="Clean Data")
+       # CleanDataModule(f3)
         
-        f3 = ttk.Frame(self.master)
-        mainNb.add(f3, text="Clean Data")
-        CleanDataModule(f3)
-        
-        f4 = ttk.Frame(self.master)
-        mainNb.add(f4, text="Plot Data")
-        PlotDataModule(f4)
-        
+       # f4 = ttk.Frame(self.master)
+       # mainNb.add(f4, text="Plot Data")
+        PlotDataModule(mainNb.tab("Plot Data"))
 
 class MainWindow:
     def __init__(self, master):
@@ -816,7 +1063,9 @@ class MainWindow:
         self.close_button = tk.Button(master, text="Close", command=master.quit)
         self.close_button.pack()
         NotebookWindow(self.master)
-        
+
+
+
 root = tk.Tk()
 my_gui = MainWindow(root)
 root.update_idletasks()
