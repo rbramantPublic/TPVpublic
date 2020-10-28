@@ -469,8 +469,8 @@ class CleanDataModule:
     #needs to
     #   a) merge CSV parameters dataframe and solarSim loaded dataframes X
     #   b) button to restore to original dataframes X
-    #   c) save current dataframe to a storage file
-    #   d) calculate hysteresis
+    #   c) save current dataframe to a storage file X
+    #   d) calculate hysteresis -- see SortAndPlotFunctions X
     #       filter by samples that have both reverse and forward scan directions
     #       calculate hysteresis and write new columns for PCE_hyst, FF_hyst, Jsc_hyst, Voc_hyst
     #   e) remove outliers
@@ -632,6 +632,7 @@ class CleanDataModule:
         self.makeJVPreviewPlot(filesJVData)
 
     def makeJVPreviewPlot(self, filesJVData):
+        #should move some of this to SortAndPlotFunctions
         """
         Makes a JV plot from the dataframe that has the Voltage, Current, and filename (filesJVData).
         """
@@ -801,10 +802,10 @@ class PlotDataModule:
         #Entries:
         self.yVarMin = ttk.Entry(self.editPlotSetupFrame, width=5)
         self.yVarMin.grid(column=2,row=2, sticky=tk.W)
-        self.yVarMin.insert(tk.END, '0')
+        self.yVarMin.insert(tk.END, 'default')
         self.yVarMax = ttk.Entry(self.editPlotSetupFrame, width=5)
         self.yVarMax.grid(column=2,row=3, sticky=tk.W)
-        self.yVarMax.insert(tk.END,'0')
+        self.yVarMax.insert(tk.END,'default')
         self.sizeXentry= ttk.Entry(self.editPlotSetupFrame,width=5)
         self.sizeXentry.grid(column=2,row=4, sticky=tk.W)
         self.sizeXentry.insert(tk.END, '5')
@@ -892,6 +893,11 @@ class PlotDataModule:
         yAxRangeMin, yAxRangeMax = self.yVarMin.get(), self.yVarMax.get()
         sizeX, sizeY = self.sizeXentry.get(), self.sizeYentry.get()
         fntSize = self.sizeFntEntry.get()
+        #convert default or deleted entries into None so that the SortAndPlot module sets ylim to auto
+        if yAxRangeMin == 'default' or yAxRangeMin == '':
+            yAxRangeMin = np.nan
+        if yAxRangeMax == 'default' or yAxRangeMax == '':
+            yAxRangeMax = np.nan
         try:
             yAxRangeMin, yAxRangeMax = float(yAxRangeMin), float(yAxRangeMax)
             sizeX, sizeY = float(sizeX), float(sizeY)

@@ -81,15 +81,11 @@ class Plots:
             self.title2Group += string
         for string in self.x2DotGroup.split(' '):
             self.titleDotGroup += string
-        #account for 'could not convert to float' on an empty entry
-        if self.YaxRangeMin == "":
-                self.YaxRangeMin = 0.0
-        else:
+        if self.YaxRangeMin:
                 self.YaxRangeMin = float(self.YaxRangeMin)
-        if self.YaxRangeMax == "":
-                self.YaxRangeMax = 0.0
-        else:
+        if self.YaxRangeMax:
                 self.YaxRangeMax = float(self.YaxRangeMax)
+        #account for 'could not convert to float' on an empty entry if user deleted 'default'
         if self.sizeX == "":
                 self.sizeX = 5.0
         else:
@@ -107,7 +103,6 @@ class Plots:
             ax1 = sns.boxplot(x=self.x1Group, y=self.yGroup, notch = False,
                             #hue_order=clarity_ranking,
                             data=self.df)
-            # ax1.legend(bbox_to_anchor=(1.05, 1), loc=2, borderaxespad=0.)
             ax1.set_xticklabels(ax1.get_xticklabels(), rotation=30, ha="right")
             self.strSave = "boxPlot" + self.yGroup + self.title1Group + ".png"
             titleSave = self.yGroup + " as a function of " + self.x1Group
@@ -155,6 +150,7 @@ class Plots:
             #### need to move the legends
             if self.x2DotGroup:
                 if self.x2DotGroup != self.x2Group: #### this adds more information to the plot, as you can now label 3 groups (or have 3 independent variables) in the plot
+                    
                     ax1 = sns.swarmplot(x=self.x1Group, y=self.yGroup,hue = self.x2DotGroup,palette="bright", data=self.df,
                     size=6, color=".5", linewidth=2,dodge=True)
                     ax1.legend(bbox_to_anchor=(1.05, 1), loc=2, borderaxespad=0.)
@@ -164,28 +160,25 @@ class Plots:
                                         palette="bright", data=self.df, size=2,
                                         color=".01", linewidth=4,dodge=True)
                     ax1.legend(bbox_to_anchor=(1.05, 1), loc=2, borderaxespad=0.)
-        if self.YaxRangeMin != 0 or self.YaxRangeMax != 0:
-        #### converting the axis scalling to float
-            # print(self.YaxRangeMin, self.YaxRangeMax)
-            # ax1.set(ylim=(self.YaxRangeMin,self.YaxRangeMax))
-            plt.ylim(self.YaxRangeMin, self.YaxRangeMax)
-            # print('resizing axis')
+        # if Y axis limits have been set by user (and are no longer 'None' as default)\
+        if self.YaxRangeMin is not np.nan:
+            plt.ylim(bottom = self.YaxRangeMin)
+        if self.YaxRangeMax is not np.nan:
+            plt.ylim(top = self.YaxRangeMax)
         plt.tight_layout()
         plt.savefig(self.folderSave + self.strSave)
-        # plt.close()
         plotImage = PIL.Image.open(self.folderSave+self.strSave)
         return plotImage
     def stripPlot(self):
-        ### this makes the striplots
-        ### if there is only one X group, make a simple stripplot without any hue (or secondary indepedent variable)
+        #this makes the striplots
+        #if there is only one X group, make a simple strip plot without any hue
         if self.x1Group and not self.x2Group:
             plt.figure()
-            ax1 = sns.stripplot(x=self.x1Group, y=self.yGroup,  ### putting the stipplot on that figure
+            ax1 = sns.stripplot(x=self.x1Group, y=self.yGroup,  ### putting the stip plot on that figure
                             jitter = 0.35,
                             size = 4,
                             #hue_order=clarity_ranking,
                             data=self.df)
-            # self.ax1.legend(bbox_to_anchor=(1.05, 1), loc=2, borderaxespad=0.)
             ax1.set_xticklabels(ax1.get_xticklabels(), rotation=30, ha="right")  ### rotating the axis labels so they don't bump into each other
             self.strSave = "striplPlot" + self.yGroup + self.title1Group + ".png" ## saving the plot
                     ########## sizing plot, adjusting bottom margin for long axis labels
@@ -215,13 +208,11 @@ class Plots:
             # ########3
             titleSave = self.yGroup + " as a function of " + self.x1Group + " and " + self.x2Group
             ax1.set_title(titleSave)
-        # self.figure.tight_layout(pad = 0.5)
-        if self.YaxRangeMin != 0 or self.YaxRangeMax != 0:
-        #### converting the axis scalling to float
-            # print(self.YaxRangeMin, self.YaxRangeMax)
-            # ax1.set(ylim=(self.YaxRangeMin,self.YaxRangeMax))
-            plt.ylim(self.YaxRangeMin, self.YaxRangeMax)
-            # print('resizing axis')
+        # if Y axis limits have been set by user (and are no longer 'None' as default)\
+        if self.YaxRangeMin is not np.nan:
+            plt.ylim(bottom = self.YaxRangeMin)
+        if self.YaxRangeMax is not np.nan:
+            plt.ylim(top = self.YaxRangeMax)
         plt.tight_layout()
         plt.savefig(self.folderSave + self.strSave)  # change to seaborn
         # plt.close()

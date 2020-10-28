@@ -44,8 +44,6 @@ class LoadData:
             newDevice = PvDevice(f, self.solarSim, self.module, self.racetrack)
             newDevice.deviceDataFromLoad_set(f,self.solarSim)
             fileJVData = newDevice.filesJVData_get()
-            #print("getting file's JV data from PvDevice")
-            #print(fileJVData)
             newDevice.deviceDataFromCalc_set()
             # dfTemp = newDevice.dataFrameDict_get()
             badFormat = newDevice.badFormat_get()
@@ -91,6 +89,9 @@ class LoadData:
             
         except: 
             self.badFormatLoadList = fileName
+    # def addDeviceToNumpyDf(self, f, df):
+            
+
     def loadDF_destroy(self):
         self.df = pd.DataFrame()
         self.dfP = pd.DataFrame()
@@ -346,6 +347,8 @@ class PvDevice:
         return self.__noisyCurveTemp
     def filesJVData_get(self):
         return self.__dataJVdf
+    def filesNumpyData_get(self):
+        return self.__dataJV
     def devicesDF_destroy(self):
         PvDevice.__devicesDF = pd.DataFrame(columns=PvDevice.__devicesDF.columns)
   
