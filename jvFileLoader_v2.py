@@ -274,6 +274,8 @@ class PvDevice:
                 self.__dataDF['Jmpp'] = self.jmpp
                 self.__dataDF['Rs'] = self.rs
                 self.__dataDF['Rsh'] = self.rsh
+                self.__dataDF['Voltage (V)'] = [self.__dataJV[:,0]]
+                self.__dataDF['Current Density (mA/cm^2)'] = [self.__dataJV[:,1]]
                 PvDevice.__devicesDF = pd.concat([PvDevice.__devicesDF, self.__dataDF])
             except:
                 print(self.filename)

@@ -94,7 +94,23 @@ class Plots:
                 self.sizeY = 5.0
         else:
                 self.sizeY = float(self.sizeY)
-                
+    def plotJV(self):
+        """
+        plots current density vs voltage for any number of selected devices in df.
+        Various applications: 
+            Can be used to plot and save JV curves by category. (Plot Preview tab)
+            Can be used to plot any number of JV curves highlighted in data tree. (Clean Data tab)
+        """
+        sns.set(font_scale = self.fntSz)
+        sns.set_palette('colorblind')    
+        if self.x1Group and not self.x2Group:
+            plt.figure()
+            #fill in more detail here
+        if self.x1Group and self.x2Group:
+            plt.figure
+            #fill in more detail here
+            
+        
     def barPlot(self):
         # print(self.x1Group, self.x2Group, self.x2DotGroup)
         sns.set(font_scale=self.fntSz)
