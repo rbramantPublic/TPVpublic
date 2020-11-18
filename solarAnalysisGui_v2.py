@@ -79,9 +79,7 @@ class DataMethods:
     __dfLoaded = pd.DataFrame() #original loaded data. keep around to restore if needed.
     __dfAdjusted = pd.DataFrame() #edited data. merged with parameters, etc.
     __dfParameters = pd.DataFrame() #loaded from parameters CSV. keep around to restore if needed
-    __dfHyst = pd.DataFrame() #not fully implemented yet in a way I like - a dataframe that includes hysteresis data from JV curves (difference in performance based on scan direction)
-    __numpyDf = pd.DataFrame()
-    allJVData = pd.DataFrame()
+    __allJVData = pd.DataFrame() #current density and voltage data for all scans by filename. Called to generate JV curve plots and clean noisy data
     badFileList = ''
     # noisyCurveList = []
     def __init__(self, master):
@@ -89,9 +87,11 @@ class DataMethods:
         self.filenameList = []
         self.filename = ''
     def loadData(self, solarSim):
-        #this will initiate file dialogue
-        #it will then call jvFileLoader and start loading and analyzing data
-        #jvFileLoader fills dataFrame, which concats to class attribute dfLoaded
+        """
+        this will initiate file dialogue popup window
+        it will then call jvFileLoader and start loading and analyzing data
+        jvFileLoader fills dataFrames, which concats to class attributes __dfLoaded and __allJVData
+        """
         self.filenameList = filedialog.askopenfilenames(initialdir="/Users/rbramant/Documents/Scripts/python/8-13GuiAnalysis/",
                                                   title = "Select Solar Sim Files to Load",
                                                   filetypes = (("txt", "*.txt"), ("all files","*.*")))
@@ -101,7 +101,7 @@ class DataMethods:
         self.dfTemp = loader.df
         self.badFileTemp = loader.badFormatLoadList
         self.noisyCurveTemp = loader.noisyCurveLoadList
-        DataMethods.allJVData = loader.allDataJVdf             # for identifying outliers
+        DataMethods.__allJVData = loader.allDataJVdf             # for identifying outliers
         DataMethods.badFileSetter(self,self.badFileTemp)
         #creates dict that will have more data added and be converted to a dataframe
         # self.dictForRemoveOutliers = {'filenames': self.filenameList}
@@ -109,6 +109,10 @@ class DataMethods:
         # DataMethods.noisyCurveList = self.noisyCurveTemp
         DataMethods.__dfLoaded = pd.concat([DataMethods.__dfLoaded, self.dfTemp])
     def loadDataCSV(self, addDevices = False):
+        """ 
+        loading data from a CSV instead of a txt file. It can be a Parameters CSV (addDevices=False)
+        or it can be a CSV containing data from previous runs (addDevices=True)
+        """
         self.addDevices = addDevices
         # print(str(self.addDevices))
         self.filename = filedialog.askopenfilename(initialdir="/Users/",
@@ -140,11 +144,11 @@ class DataMethods:
 
         DataMethods.badFileSetter(self, self.badFileTemp)
     def dataFrameMerger(self): 
-        #This method merges __dfLoaded (data loaded from solar sims) and __dfParameters (data loaded from csv to assign correlatable parameters to our data).
-        # the "left" facing join will only retain the csv data that pertains to the samples in __dfLoaded.
-        #if CSV contained data for devices not listed in __dfLoaded, and "add Devices" was checked "no", then those devices won't be included in the final dataframe.
-        #rewerite this to accomodate levelled dataframe from CSV-loader - levels that stipulate whether to match or to insert.
-        #^ not crucial, already partially implemented by "cols_to_use" below. More important for pixels in blade coating
+        """  
+        This method merges __dfLoaded (data loaded from solar sims) and __dfParameters (data loaded from csv to assign correlatable parameters to our data).
+        the "left" facing join will only retain the csv data that pertains to the samples in __dfLoaded.
+        if CSV contained data for devices not listed in __dfLoaded, and "add Devices" was checked "no", then those devices won't be included in the final dataframe.
+        """
         if DataMethods.__dfParameters.empty == False:
             # try:
                 df1 = DataMethods.__dfLoaded.copy()
@@ -186,7 +190,7 @@ class DataMethods:
     def removeOutliers(self):
         """
         loops through DataMethods.__dfAdjusted to make sure the FF and Voc values aren't impossible
-        then, sees if the data in allJVData has >1 local maxima. It would if the curve isn't continuous. Deletes
+        then, sees if the data in __allJVData has >1 local maxima. It would if the curve isn't continuous. Deletes
         curves that aren't continuous.
         Then, statistically deletes outliers from __dfAdjusted
         """
@@ -209,7 +213,7 @@ class DataMethods:
         endColumn = 2 #the File column
         increment = endRow-startRow
         for i in range(len(DataMethods.__dfAdjusted)):
-            subset = DataMethods.allJVData.iloc[startRow:endRow+1, startColumn:endColumn+1]
+            subset = DataMethods.__allJVData.iloc[startRow:endRow+1, startColumn:endColumn+1]
             maximums = argrelextrema(subset['Current'].values, np.greater, order= 10)  # the order is the number of points being compared to determine
             if (len(maximums[0]) > 1):                                                 # if something is a max. There are 150 points to be compared total. This can be changed
                 indices = list(range(startRow, endRow+1))
@@ -238,12 +242,12 @@ class DataMethods:
         CleanDataModule.populateDataTree(self)
     def findEndRow(self):
         '''
-        Finds the last row of voltage data in the allJVData dataframe for one file. Returns the int.
+        Finds the last row of voltage data in the __allJVData dataframe for one file. Returns the int.
         '''
-        startFileName = DataMethods.allJVData.at[0, 'File'][0]
+        startFileName = DataMethods.__allJVData.at[0, 'File'][0]
         curFileName = ""
         indexNum = 0
-        for index, row in DataMethods.allJVData.iterrows():
+        for index, row in DataMethods.__allJVData.iterrows():
             curFileName = row['File']
             if curFileName != startFileName:
                 return indexNum-1
@@ -279,6 +283,9 @@ class DataMethods:
     def dataFrameParameters_get(self):
         self.dataFrameCSVs = DataMethods.__dfParameters.copy()
         return self.dataFrameCSVs
+    def dataFrameJV_get(self):
+        self.jvDf = DataMethods.__allJVData.copy()
+        return self.jvDf
     def dataFrameDevices_destroy(self):
         DataMethods.__dfLoaded = pd.DataFrame(columns=DataMethods.__dfLoaded.columns)
     def dataFrameParameters_destroy(self):
@@ -331,7 +338,8 @@ class LoadDataModule:
             self.radioSim.grid(row = i, column = 1, padx=10, pady=5, sticky=tk.W)
         
         self.loadData_button = tk.Button(loadDataFileFrame, text="Load Data", command= 
-                                         lambda: [DataMethods.loadData(self,solarSimSelect.get()),
+                                         lambda: [print(solarSimSelect.get()),
+                                                  DataMethods.loadData(self,solarSimSelect.get()),
                                                   self.loadLogFill(DataMethods.badFileList),
                                                   self.loadLogDeviceList(),
                                                   self.loadLogParametersList()])
@@ -469,8 +477,8 @@ class CleanDataModule:
     #needs to
     #   a) merge CSV parameters dataframe and solarSim loaded dataframes X
     #   b) button to restore to original dataframes X
-    #   c) save current dataframe to a storage file
-    #   d) calculate hysteresis
+    #   c) save current dataframe to a storage file X
+    #   d) calculate hysteresis -- see SortAndPlotFunctions X
     #       filter by samples that have both reverse and forward scan directions
     #       calculate hysteresis and write new columns for PCE_hyst, FF_hyst, Jsc_hyst, Voc_hyst
     #   e) remove outliers
@@ -559,6 +567,8 @@ class CleanDataModule:
         self.selectionError = tk.Label(viewDataFrame, text= "")
         self.previewJVplotButton = tk.Button(viewDataFrame, text="Preview Selected Device's JV curve", command= lambda : self.previewJVplot())
         self.previewJVplotButton.pack()
+        self.clearJVplotButton = tk.Button(viewDataFrame, text='Clear all JV curves', command = lambda: self.jvFigureCanvas.get_tk_widget().pack_forget())  # removes prexisting JV plot
+        self.clearJVplotButton.pack()
         self.deleteDevicesButton = tk.Button(viewDataFrame, text = 'Delete Selected Devices',
                                              command = lambda: CleanDataModule.destroyTreeItems(self))
         self.deleteDevicesButton.pack()
@@ -623,7 +633,7 @@ class CleanDataModule:
         deviceValues = self.viewDataTree.item(self.selectedItems, 'values')
         for k, value in enumerate(deviceValues,start=0):
             self.attributeList.append((columnvalues[k], value))
-        self.allJVData = DataMethods.allJVData   # get JV data from attribute list
+        self.allJVData = DataMethods.dataFrameJV_get(self)
         filenames = self.allJVData.groupby(by="File")
         for filename in filenames:
             if self.isSelectedFile(deviceValues, filename[0]):
@@ -632,6 +642,7 @@ class CleanDataModule:
         self.makeJVPreviewPlot(filesJVData)
 
     def makeJVPreviewPlot(self, filesJVData):
+        #should move some of this to SortAndPlotFunctions
         """
         Makes a JV plot from the dataframe that has the Voltage, Current, and filename (filesJVData).
         """
@@ -682,7 +693,11 @@ class CleanDataModule:
         self.viewDataTree.delete(*self.viewDataTree.get_children())
         
     def destroyTreeItems(self):
-        self.jvFigureCanvas.get_tk_widget().pack_forget()  # removes prexisting JV plot
+        """
+        detects what devices have been highlighted by the user, removes them from __dfAdjusted
+        repopulates the data tree
+        """
+        self.jvFigureCanvas.get_tk_widget().pack_forget()  # removes prexisting JV plot #NEEDS TO MOVE TO OWN BUTTON
         self.ax.cla()
         self.selectedItems = self.viewDataTree.selection()
         self.attributeList = []
@@ -722,16 +737,16 @@ class CleanDataModule:
         self.cleanLoadLog.configure(state='disabled')
 
 class PlotDataModule:
-    # A window where you can:
-    #   a) Select which variables you want to plot (categories, split into three sections by color and "dots")
-    #   b) Determine y range of data, overall size of plot
-    #   c) "Preview" plot
-    #   d) save plot as: <your choice of title>
-    #   e) types of plots:
-    #       bar plot
-    #       strip plot
-    #       box plot
-    #       stats plot
+    """ A window where you can:
+      a) Select which variables you want to plot (categories, split into three sections by color and "dots")
+      b) Determine y range of data, overall size of plot
+      c) "Preview" plot
+      d) save plot as: <categories chosen by user to generate the plot>
+      e) types of plots:
+          strip plot
+          box plot
+          stats plot
+    """
     def __init__(self, master):
         self.master = master
         #Variables:
@@ -801,10 +816,10 @@ class PlotDataModule:
         #Entries:
         self.yVarMin = ttk.Entry(self.editPlotSetupFrame, width=5)
         self.yVarMin.grid(column=2,row=2, sticky=tk.W)
-        self.yVarMin.insert(tk.END, '0')
+        self.yVarMin.insert(tk.END, 'default')
         self.yVarMax = ttk.Entry(self.editPlotSetupFrame, width=5)
         self.yVarMax.grid(column=2,row=3, sticky=tk.W)
-        self.yVarMax.insert(tk.END,'0')
+        self.yVarMax.insert(tk.END,'default')
         self.sizeXentry= ttk.Entry(self.editPlotSetupFrame,width=5)
         self.sizeXentry.grid(column=2,row=4, sticky=tk.W)
         self.sizeXentry.insert(tk.END, '5')
@@ -892,6 +907,11 @@ class PlotDataModule:
         yAxRangeMin, yAxRangeMax = self.yVarMin.get(), self.yVarMax.get()
         sizeX, sizeY = self.sizeXentry.get(), self.sizeYentry.get()
         fntSize = self.sizeFntEntry.get()
+        #convert default or deleted entries into None so that the SortAndPlot module sets ylim to auto
+        if yAxRangeMin == 'default' or yAxRangeMin == '':
+            yAxRangeMin = np.nan
+        if yAxRangeMax == 'default' or yAxRangeMax == '':
+            yAxRangeMax = np.nan
         try:
             yAxRangeMin, yAxRangeMax = float(yAxRangeMin), float(yAxRangeMax)
             sizeX, sizeY = float(sizeX), float(sizeY)
@@ -967,7 +987,7 @@ class PlotDataModule:
             self.df = self.df.loc['Scan Direction'=='rev']
         elif self.scanDirection.get()=='forward':
             self.df = self.df.loc['ScanDirection'=='fwd']
-        yVars = ['Path', 'File', 'index']
+        yVars = ['Path', 'File', 'index', 'Voltage (V)', 'Current Density (mA/cm^2)']
         yVars.extend(self.yVars)
         # print(yVars)
         self.listVariables = self.df.columns.values.tolist()
