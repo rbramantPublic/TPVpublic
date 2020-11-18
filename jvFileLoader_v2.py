@@ -266,14 +266,14 @@ class PvDevice:
                 PvDevice.calcPCE(self)
                 PvDevice.calcRs(self)
                 PvDevice.calcRsh(self)
-                self.__dataDF['Voc'] = self.voc
-                self.__dataDF['Jsc'] = self.jsc
-                self.__dataDF['FF'] = self.ff
-                self.__dataDF['PCE'] = self.pce
-                self.__dataDF['Vmpp'] = self.vmpp
-                self.__dataDF['Jmpp'] = self.jmpp
-                self.__dataDF['Rs'] = self.rs
-                self.__dataDF['Rsh'] = self.rsh
+                self.__dataDF['Voc'] = abs(self.voc)
+                self.__dataDF['Jsc'] = abs(self.jsc)
+                self.__dataDF['FF'] = abs(self.ff)
+                self.__dataDF['PCE'] = abs(self.pce)
+                self.__dataDF['Vmpp'] = abs(self.vmpp)
+                self.__dataDF['Jmpp'] = abs(self.jmpp)
+                self.__dataDF['Rs'] = abs(self.rs)
+                self.__dataDF['Rsh'] = abs(self.rsh)
                 self.__dataDF['Voltage (V)'] = [self.__dataJV[:,0]]
                 self.__dataDF['Current Density (mA/cm^2)'] = [self.__dataJV[:,1]]
                 PvDevice.__devicesDF = pd.concat([PvDevice.__devicesDF, self.__dataDF])
@@ -289,6 +289,7 @@ class PvDevice:
     def deviceDataFromLoad_set(self, filename, solarSim):
         self.filename = filename
         self.solarSim = solarSim
+        print(f'device Data From Load {self.solarSim}')
         badFormatTemp = '' # declaring the list to store
         dfLoadTemp = {}
         dataNPtemp=[]
@@ -307,20 +308,22 @@ class PvDevice:
                 #print("self.__dataJVdf after data loaded in")
                 #print(self.__dataJVdf)
                 # dictLoadTemp = loader.dataDict
-            elif self.solarSim == "PDIL substrate sim" & self.module == False:
+            elif self.solarSim == "PDIL substrate sim":
                 loader.STF213sub(self.filename)
                 dataNPtemp = loader.dataNP
                 dfLoadTemp = loader.dataDF
                 # dictLoadTemp = loader.dataDict
-            elif self.solarSim == "STF204 indoor light sim" & self.module == False:
+            elif self.solarSim == "STF204 indoor light sim":
                 loader.STF204in(self.filename)
                 dataNPtemp = loader.dataNP
                 dfLoadTemp = loader.dataDF
                 # dictLoadTemp = loader.dataDict
-            elif self.solarSim == "STF136 superstrate sim" & self.module == False:
+            elif self.solarSim == "STF136 superstrate sim":
+                print('try to load, STF136 superstrate sim selected')
                 loader.STF136sup(self.filename)
                 dataNPtemp = loader.dataNP
                 dfLoadTemp = loader.dataDF
+                print(dfLoadTemp)
                 # dictLoadTemp = loader.dataDict
             elif self.solarSim == "reload DF":
                 #load pickle to dfLoadTemp.
@@ -449,17 +452,47 @@ class SimLoader:
         # Sometimes STF136 appends multiple JV measurements to one file.
         # The following mmaps and regex expressions splits differen JV runs up
         # It currently selects for the first JV run's data, but that could be changed.
-        with open(self.filename) as f:
-            mf=mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ)
-            chunks=re.finditer(r'(^"Comments:".*?)(?=^"Comments:"|\Z)',mf,re.S | re.M)
-            for i, chunk in enumerate(chunks, 1):
-                with open('/path/{file,chonk}.csv'.format(file = self.filename,
-                                                          chonk=i), 'w') as fout:
-                    fout.write(chunk.group(1))    
-        self.dataNP = pd.loadtxt(self.filename+'1.csv', skiprows=18, usecols = [0,1],
-                              delimiter='\t', dtype=np.float64)
-        self.__dataJVdf = pd.read_csv(self.filename+'1.csv', sep = "\t", skiprows=18, usecols = [0,1], names=["Voltage", "Current"], dtype = float)
+        # print('attempt to split into chunks')
+        # with open(self.filename) as f:
+        #     mf=mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ)
+        #     chunks=re.finditer(r'(^"Comments:".*?)(?=^"Comments:"|\Z)',mf,re.S | re.M)
+        #     for i, chunk in enumerate(chunks, 1):
+        #         with open('/path/{file,chonk}.csv'.format(file = self.filename,
+        #                                                   chonk=i), 'w') as fout:
+        #             fout.write(chunk.group(1))    
+        # print('chunks split')
+        # self.dataNP = pd.loadtxt(self.filename+'1.csv', skiprows=18, usecols = [0,1],
+        #                       delimiter='\t', dtype=np.float64)
+        # self.__dataJVdf = pd.read_csv(self.filename+'1.csv', sep = "\t", skiprows=18, usecols = [0,1], names=["Voltage", "Current"], dtype = float)
+        # #puts IV data into a dataframe
+        try:
+            self.dataNP = loadtxt(self.filename, skiprows=18, usecols = [0,1],
+                                  delimiter='\t', dtype=np.float64)
+            print(self.dataNP)
+            self.__dataJVdf = pd.read_csv(self.filename, sep = "\t", skiprows=18,
+                                     usecols = [0,1], names=["Voltage", "Current"],
+                                     dtype = np.float64)
+            print(self.__dataJVdf)
         #puts IV data into a dataframe
+        except:
+            try:
+                print('attempt to split into chunks')
+                with open(self.filename) as f:
+                    mf=mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ)
+                    chunks=re.finditer(r'(^"Comments:".*?)(?=^"Comments:"|\Z)',mf,re.S | re.M)
+                    for i, chunk in enumerate(chunks, 1):
+                        with open('/path/{file,chonk}.csv'.format(file = self.filename,
+                                                                  chonk=i), 'w') as fout:
+                            fout.write(chunk.group(1))    
+                print('chunks split')
+                self.dataNP = loadtxt(self.filename+'1.csv', skiprows=18, usecols = [0,1],
+                                      delimiter='\t', dtype=np.float64)
+                self.__dataJVdf = pd.read_csv(self.filename+'1.csv', sep = "\t",
+                                              skiprows=18, usecols = [0,1], names=["Voltage", "Current"],
+                                              dtype = np.float64)
+                #puts IV data into a dataframe
+            except: 
+                print(f'something is wrong with {self.filename} data')
         try:
             split0 = self.filename.split('/') ### splitting off path from filename
             file = split0[-1]
@@ -470,9 +503,10 @@ class SimLoader:
             user = fileNameSplit[0]     # user initials is first col [0]
             sampleName = fileNameSplit[1]     # cell name is second col [1]
             scanDir = fileNameSplit[2]    # scan direction is the third [2]
+            scanNum = fileNameSplit[3]  #scan number is the fourth [3]
             self.dataDict = {'Path': path, 'Folder': folder, 'File': file, 'Solar Simulator': "STF136 superstrate sim",
               'User Initials': user, 'Sample': sampleName,
-              'Scan Direction': scanDir, 'LightDark': 'lt'}
+              'Scan Direction': scanDir, 'Scan': scanNum, 'LightDark': 'lt'}
             self.dataDF = self.dataDF.append(self.dataDict, ignore_index=True)
             self.__dataJVdf['File'] = file
             

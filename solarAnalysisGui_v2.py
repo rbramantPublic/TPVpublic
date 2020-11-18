@@ -338,7 +338,8 @@ class LoadDataModule:
             self.radioSim.grid(row = i, column = 1, padx=10, pady=5, sticky=tk.W)
         
         self.loadData_button = tk.Button(loadDataFileFrame, text="Load Data", command= 
-                                         lambda: [DataMethods.loadData(self,solarSimSelect.get()),
+                                         lambda: [print(solarSimSelect.get()),
+                                                  DataMethods.loadData(self,solarSimSelect.get()),
                                                   self.loadLogFill(DataMethods.badFileList),
                                                   self.loadLogDeviceList(),
                                                   self.loadLogParametersList()])
@@ -736,16 +737,16 @@ class CleanDataModule:
         self.cleanLoadLog.configure(state='disabled')
 
 class PlotDataModule:
-    # A window where you can:
-    #   a) Select which variables you want to plot (categories, split into three sections by color and "dots")
-    #   b) Determine y range of data, overall size of plot
-    #   c) "Preview" plot
-    #   d) save plot as: <your choice of title>
-    #   e) types of plots:
-    #       bar plot
-    #       strip plot
-    #       box plot
-    #       stats plot
+    """ A window where you can:
+      a) Select which variables you want to plot (categories, split into three sections by color and "dots")
+      b) Determine y range of data, overall size of plot
+      c) "Preview" plot
+      d) save plot as: <categories chosen by user to generate the plot>
+      e) types of plots:
+          strip plot
+          box plot
+          stats plot
+    """
     def __init__(self, master):
         self.master = master
         #Variables:

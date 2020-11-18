@@ -16,6 +16,8 @@ from scipy import optimize, stats
 from scipy.stats import linregress
 import csv
 import PIL.Image, PIL.ImageTk
+from matplotlib.lines import Line2D
+sns.set_palette('colorblind')
 
 class ScanDirections:
     def __init__(self, df):
@@ -102,12 +104,30 @@ class Plots:
             Can be used to plot any number of JV curves highlighted in data tree. (Clean Data tab)
         """
         sns.set(font_scale = self.fntSz)
-        sns.set_palette('colorblind')    
-        if self.x1Group and not self.x2Group:
+        colors=sns.color_palette()
+        legendLines = []
+        legendKeys = []
+        if self.x1Group:
             plt.figure()
-            #fill in more detail here
-        if self.x1Group and self.x2Group:
-            plt.figure
+            grouped = self.df.groupby(self.x1Group)
+            for i, (category, categoryGroup) in enumerate(grouped):
+                legendLines = []
+                legendKeys = []
+                print(category)
+                if self.x2Group:
+                    for j, (cat2, cat2Group) in enumerate(categoryGroup.groupby(self.x2Group)):
+                        c = colors[j]
+                        print(cat2)
+                        legendLines.append(Line2D([0], [0], color=c, lw=2))
+                        legendKeys.append(f'{cat2}')
+                        for index, row in cat2Group.iterrows():
+                            voltage, cd = row['Voltage (V)'], row['Current Density (mA/cm^2)']
+                            plt.plot(cd, voltage, color=c)
+                            
+                if not self.x2Group:
+                    c = colors[i]
+                    legendLines.append(Line2D([0],[0], color=c, lw=2))
+                    legendKeys.append(f'{category}')
             #fill in more detail here
             
         
