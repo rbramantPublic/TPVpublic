@@ -668,6 +668,8 @@ class CleanDataModule:
 
     def populateDataTree(self):
         self.__treeData = DataMethods.dataFrameAdjusted_get(self)
+        if not 'Pixel' in self.__treeData:
+            self.__treeData['Pixel'] = None
         sampleGroup = self.__treeData.groupby(by=['User Initials','Sample'], as_index=False)
         for name, group in sampleGroup:
             newNode = self.viewDataTree.insert('',1,text=name[0]+' '+name[1],
