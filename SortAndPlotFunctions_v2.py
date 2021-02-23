@@ -70,7 +70,10 @@ class Plots:
         self.YaxRangeMax = yAxRangeMax
         # print(self.YaxRangeMin+' '+self.YaxRangeMax)
         self.fntSz = fntSz
-        self.df = df.sort_values(by=[self.x1Group,self.x2Group], ascending=[True,True], axis=0)
+        if self.x2Group:
+            self.df = df.sort_values(by=[self.x1Group,self.x2Group], ascending=[True,True], axis=0)
+        elif not self.x2Group:
+            self.df = df.sort_values(by=[self.x1Group], ascending=True, axis=0)
         self.yGroup = yGroup
         self.strSave = 'testing.png'
         self.folderSave = 'data/'
