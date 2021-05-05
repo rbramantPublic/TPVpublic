@@ -92,8 +92,7 @@ class DataMethods:
         it will then call jvFileLoader and start loading and analyzing data
         jvFileLoader fills dataFrames, which concats to class attributes __dfLoaded and __allJVData
         """
-        self.filenameList = filedialog.askopenfilenames(initialdir="/Users/rbramant/Documents/Scripts/python/8-13GuiAnalysis/",
-                                                  title = "Select Solar Sim Files to Load",
+        self.filenameList = filedialog.askopenfilenames(title = "Select Solar Sim Files to Load",
                                                   filetypes = (("txt", "*.txt"), ("all files","*.*")))
         # self.dfTemp, self.badFileTemp, self.noisyCurveTemp = loadDataFromFileManager(self.filenameList, solarSim)
         loader = ld()

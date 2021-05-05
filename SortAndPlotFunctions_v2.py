@@ -17,6 +17,7 @@ from scipy.stats import linregress
 import csv
 import PIL.Image, PIL.ImageTk
 from matplotlib.lines import Line2D
+import matplotlib.ticker as ticker
 sns.set_palette('colorblind')
 
 class ScanDirections:
@@ -70,7 +71,10 @@ class Plots:
         self.YaxRangeMax = yAxRangeMax
         # print(self.YaxRangeMin+' '+self.YaxRangeMax)
         self.fntSz = fntSz
-        self.df = df
+        if self.x2Group:
+            self.df = df.sort_values(by=[self.x1Group,self.x2Group], ascending=[True,True], axis=0)
+        elif not self.x2Group:
+            self.df = df.sort_values(by=[self.x1Group], ascending=True, axis=0)
         self.yGroup = yGroup
         self.strSave = 'testing.png'
         self.folderSave = 'data/'
@@ -201,6 +205,9 @@ class Plots:
             plt.ylim(bottom = self.YaxRangeMin)
         if self.YaxRangeMax is not np.nan:
             plt.ylim(top = self.YaxRangeMax)
+        ax1.yaxis.set_major_locator(ticker.MaxNLocator(10))
+        # ax1.yaxis.set_minor_locator(ticker.MaxNLocator(50))
+        # ax1.yaxis.grid(which='minor',linestyle='--')
         plt.tight_layout()
         plt.savefig(self.folderSave + self.strSave)
         plotImage = PIL.Image.open(self.folderSave+self.strSave)
@@ -249,6 +256,9 @@ class Plots:
             plt.ylim(bottom = self.YaxRangeMin)
         if self.YaxRangeMax is not np.nan:
             plt.ylim(top = self.YaxRangeMax)
+        ax1.yaxis.set_major_locator(ticker.MaxNLocator(10))
+        # ax1.yaxis.set_minor_locator(ticker.MaxNLocator(50))
+        # ax1.yaxis.grid(which='minor',linestyle='--')
         plt.tight_layout()
         plt.savefig(self.folderSave + self.strSave)  # change to seaborn
         # plt.close()
